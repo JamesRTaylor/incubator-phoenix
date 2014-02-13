@@ -83,7 +83,7 @@ public class CreateTableCompiler {
         // TODO: support any statement for a VIEW instead of just a WHERE clause
         ParseNode whereNode = create.getWhereClause();
         String viewStatementToBe = null;
-        byte[][] viewColumnConstantsToBe = null;
+        byte[][] viewColumnConstantsToBe = MetaDataClient.EMPTY_VIEW_CONSTANTS;
         if (type == PTableType.VIEW) {
             TableRef tableRef = resolver.getTables().get(0);
             viewColumnConstantsToBe = new byte[tableRef.getTable().getColumns().size()][];

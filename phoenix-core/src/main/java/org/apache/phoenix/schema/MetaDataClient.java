@@ -127,6 +127,7 @@ import com.google.common.primitives.Ints;
 
 public class MetaDataClient {
     private static final Logger logger = LoggerFactory.getLogger(MetaDataClient.class);
+    public static final byte[][] EMPTY_VIEW_CONSTANTS = new byte[0][];
 
     private static final ParseNodeFactory FACTORY = new ParseNodeFactory();
     private static final String CREATE_TABLE =
@@ -313,7 +314,7 @@ public class MetaDataClient {
     }
 
 
-    private void addColumnMutation(String schemaName, String tableName, PColumn column, PreparedStatement colUpsert, String parentTableName) throws SQLException {
+    private void addColumnMutation(String schemaName, String tableName, PColumn column, PreparedStatement colUpsert, String parentTableName, byte[] viewConstant) throws SQLException {
         colUpsert.setString(1, connection.getTenantId() == null ? null : connection.getTenantId().getString());
         colUpsert.setString(2, schemaName);
         colUpsert.setString(3, tableName);
@@ -339,7 +340,7 @@ public class MetaDataClient {
         } else {
             colUpsert.setInt(13, column.getArraySize());
         }
-        colUpsert.setBytes(14, column.getViewConstant());
+        colUpsert.setBytes(14, viewConstant);
         colUpsert.execute();
     }
 
@@ -560,7 +561,7 @@ public class MetaDataClient {
                     statement.getProps().put("", new Pair<String,Object>(DEFAULT_COLUMN_FAMILY_NAME,dataTable.getDefaultFamilyName().getString()));
                 }
                 CreateTableStatement tableStatement = FACTORY.createTable(indexTableName, statement.getProps(), columnDefs, pk, statement.getSplitNodes(), PTableType.INDEX, statement.ifNotExists(), null, null, statement.getBindCount());
-                table = createTableInternal(tableStatement, splits, dataTable, null, null, null); // TODO: tenant-specific index
+                table = createTableInternal(tableStatement, splits, dataTable, null, null, EMPTY_VIEW_CONSTANTS); // TODO: tenant-specific index
                 break;
             } catch (ConcurrentTableMutationException e) { // Can happen if parent data table changes while above is in progress
                 if (retry) {
@@ -766,18 +767,6 @@ public class MetaDataClient {
                     defaultFamilyName = parent.getDefaultFamilyName() == null ? null : parent.getDefaultFamilyName().getString();
                     columns = newArrayListWithExpectedSize(parent.getColumns().size() + colDefs.size());
                     columns.addAll(parent.getColumns());
-                    for (int i = 0; i < columns.size(); i++) {
-                        PColumn column = columns.get(i);
-                        final byte[] viewConstant = viewColumnConstants[column.getPosition()];
-                        if (viewConstant != null) {
-                            columns.set(i, new DelegateColumn(column) {
-                                @Override
-                                public byte[] getViewConstant() {
-                                    return viewConstant;
-                                }
-                            });
-                        }
-                    }
                     pkColumns = newLinkedHashSet(parent.getPKColumns());
 
                     // Add row linking from data table row to physical table row
@@ -956,8 +945,11 @@ public class MetaDataClient {
                 }
             }
             
-            for (PColumn column : columns) {
-                addColumnMutation(schemaName, tableName, column, colUpsert, parentTableName);
+            for (int i = 0; i < columns.size(); i++) {
+                PColumn column = columns.get(i);
+                int columnPosition = column.getPosition();
+                byte[] viewConstant = columnPosition < viewColumnConstants.length ? viewColumnConstants[columnPosition] : null;
+                addColumnMutation(schemaName, tableName, column, colUpsert, parentTableName, viewConstant);
             }
             
             tableMetaData.addAll(connection.getMutationState().toMutations().next().getSecond());
@@ -1316,7 +1308,7 @@ public class MetaDataClient {
                         throwIfAlteringViewPK(colDef, table);
                         PColumn column = newColumn(position++, colDef, PrimaryKeyConstraint.EMPTY, table.getDefaultFamilyName() == null ? null : table.getDefaultFamilyName().getString());
                         columns.add(column);
-                        addColumnMutation(schemaName, tableName, column, colUpsert, null);
+                        addColumnMutation(schemaName, tableName, column, colUpsert, null, null);
 
                         // TODO: support setting properties on other families?
                         if (column.getFamilyName() != null) {
@@ -1329,7 +1321,7 @@ public class MetaDataClient {
                                 ColumnName indexColName = ColumnName.caseSensitiveColumnName(IndexUtil.getIndexColumnName(column));
                                 ColumnDef indexColDef = FACTORY.columnDef(indexColName, indexColDataType.getSqlTypeName(), column.isNullable(), column.getMaxLength(), column.getScale(), true, column.getSortOrder());
                                 PColumn indexColumn = newColumn(indexColPosition, indexColDef, PrimaryKeyConstraint.EMPTY, index.getDefaultFamilyName() == null ? null : index.getDefaultFamilyName().getString());
-                                addColumnMutation(schemaName, index.getTableName().getString(), indexColumn, colUpsert, index.getParentTableName().getString());
+                                addColumnMutation(schemaName, index.getTableName().getString(), indexColumn, colUpsert, index.getParentTableName().getString(), null);
                             }
                         }
 
