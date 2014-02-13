@@ -567,7 +567,7 @@ public class PTableImpl implements PTable {
             byte[] qualifier = column.getName().getBytes();
             PDataType type = column.getDataType();
             // Check null, since some types have no byte representation for null
-            if (byteValue == null || byteValue.length == 0) {
+            if (type.isNull(byteValue)) {
                 if (!column.isNullable()) { 
                     throw new ConstraintViolationException(name.getString() + "." + column.getName().getString() + " may not be null");
                 }

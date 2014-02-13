@@ -47,6 +47,7 @@ import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_TYPE_NAME;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TENANT_ID;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TYPE_SCHEMA;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TYPE_TABLE;
+import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.VIEW_CONSTANT;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.VIEW_STATEMENT;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.VIEW_TYPE;
 import static org.apache.phoenix.query.QueryServices.DROP_METADATA_ATTRIB;
@@ -195,8 +196,9 @@ public class MetaDataClient {
         ORDINAL_POSITION + "," + 
         SORT_ORDER + "," +
         DATA_TABLE_NAME + "," + // write this both in the column and table rows for access by metadata APIs
-        ARRAY_SIZE +
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        ARRAY_SIZE + "," +
+        VIEW_CONSTANT +
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     private static final String UPDATE_COLUMN_POSITION =
         "UPSERT INTO " + TYPE_SCHEMA + ".\"" + TYPE_TABLE + "\" ( " + 
         TENANT_ID + "," +
@@ -337,6 +339,7 @@ public class MetaDataClient {
         } else {
             colUpsert.setInt(13, column.getArraySize());
         }
+        colUpsert.setBytes(14, column.getViewConstant());
         colUpsert.execute();
     }
 
@@ -374,15 +377,15 @@ public class MetaDataClient {
             }
             
             PColumn column = new PColumnImpl(PNameFactory.newName(columnName), familyName, def.getDataType(),
-                    def.getMaxLength(), def.getScale(), def.isNull(), position, sortOrder, def.getArraySize());
+                    def.getMaxLength(), def.getScale(), def.isNull(), position, sortOrder, def.getArraySize(), null);
             return column;
         } catch (IllegalArgumentException e) { // Based on precondition check in constructor
             throw new SQLException(e);
         }
     }
 
-    public MutationState createTable(CreateTableStatement statement, byte[][] splits, PTable parent, String viewStatement, ViewType viewType) throws SQLException {
-        PTable table = createTableInternal(statement, splits, parent, viewStatement, viewType);
+    public MutationState createTable(CreateTableStatement statement, byte[][] splits, PTable parent, String viewStatement, ViewType viewType, byte[][] viewColumnConstants) throws SQLException {
+        PTable table = createTableInternal(statement, splits, parent, viewStatement, viewType, viewColumnConstants);
         if (table == null || table.getType() == PTableType.VIEW) {
             return new MutationState(0,connection);
         }
@@ -557,7 +560,7 @@ public class MetaDataClient {
                     statement.getProps().put("", new Pair<String,Object>(DEFAULT_COLUMN_FAMILY_NAME,dataTable.getDefaultFamilyName().getString()));
                 }
                 CreateTableStatement tableStatement = FACTORY.createTable(indexTableName, statement.getProps(), columnDefs, pk, statement.getSplitNodes(), PTableType.INDEX, statement.ifNotExists(), null, null, statement.getBindCount());
-                table = createTableInternal(tableStatement, splits, dataTable, null, null); // TODO: tenant-specific index
+                table = createTableInternal(tableStatement, splits, dataTable, null, null, null); // TODO: tenant-specific index
                 break;
             } catch (ConcurrentTableMutationException e) { // Can happen if parent data table changes while above is in progress
                 if (retry) {
@@ -622,7 +625,7 @@ public class MetaDataClient {
         return null;
     }
     
-    private PTable createTableInternal(CreateTableStatement statement, byte[][] splits, final PTable parent, String viewStatement, ViewType viewType) throws SQLException {
+    private PTable createTableInternal(CreateTableStatement statement, byte[][] splits, final PTable parent, String viewStatement, ViewType viewType, byte[][] viewColumnConstants) throws SQLException {
         final PTableType tableType = statement.getTableType();
         boolean wasAutoCommit = connection.getAutoCommit();
         connection.rollback();
@@ -763,6 +766,18 @@ public class MetaDataClient {
                     defaultFamilyName = parent.getDefaultFamilyName() == null ? null : parent.getDefaultFamilyName().getString();
                     columns = newArrayListWithExpectedSize(parent.getColumns().size() + colDefs.size());
                     columns.addAll(parent.getColumns());
+                    for (int i = 0; i < columns.size(); i++) {
+                        PColumn column = columns.get(i);
+                        final byte[] viewConstant = viewColumnConstants[column.getPosition()];
+                        if (viewConstant != null) {
+                            columns.set(i, new DelegateColumn(column) {
+                                @Override
+                                public byte[] getViewConstant() {
+                                    return viewConstant;
+                                }
+                            });
+                        }
+                    }
                     pkColumns = newLinkedHashSet(parent.getPKColumns());
 
                     // Add row linking from data table row to physical table row
@@ -1156,8 +1171,17 @@ public class MetaDataClient {
             connection.removeTable(tableName);
             throw new TableNotFoundException(schemaName, tableName);
         case UNALLOWED_TABLE_MUTATION:
+            String columnName = null;
+            String familyName = null;
+            String msg = null;
+            // TODO: better to return error code
+            if (result.getColumnName() != null) {
+                familyName = result.getFamilyName() == null ? null : Bytes.toString(result.getFamilyName());
+                columnName = Bytes.toString(result.getColumnName());
+                msg = "Cannot drop column referenced by VIEW";
+            }
             throw new SQLExceptionInfo.Builder(SQLExceptionCode.CANNOT_MUTATE_TABLE)
-                .setSchemaName(schemaName).setTableName(tableName).build().buildException();
+                .setSchemaName(schemaName).setTableName(tableName).setFamilyName(familyName).setColumnName(columnName).setMessage(msg).build().buildException();
         case COLUMN_ALREADY_EXISTS:
         case COLUMN_NOT_FOUND:
             break;
