@@ -213,6 +213,7 @@ public class UpsertCompiler {
         }
         boolean isSalted = table.getBucketNum() != null;
         boolean isTenantSpecific = table.isMultiTenant() && connection.getTenantId() != null;
+        boolean isTenantSpecificIndex = isTenantSpecific && table.getViewIndexId() != null;
         String tenantId = isTenantSpecific ? connection.getTenantId().getString() : null;
         int posOffset = isSalted ? 1 : 0;
         // Setup array of column indexes parallel to values that are going to be set
@@ -260,7 +261,7 @@ public class UpsertCompiler {
         } else {
             // Size for worse case
             int numColsInUpsert = columnNodes.size();
-            nColumnsToSet = numColsInUpsert + addViewColumns.size() + (isTenantSpecific ? 1 : 0);
+            nColumnsToSet = numColsInUpsert + addViewColumns.size() + (isTenantSpecific ? 1 : 0) +  + (isTenantSpecificIndex ? 1 : 0);
             columnIndexesToBe = new int[nColumnsToSet];
             pkSlotIndexesToBe = new int[columnIndexesToBe.length];
             targetColumns = Lists.newArrayListWithExpectedSize(columnIndexesToBe.length);
@@ -304,6 +305,13 @@ public class UpsertCompiler {
                 pkColumnsSet.set(pkSlotIndexesToBe[i] = posOffset);
                 targetColumns.set(i, tenantColumn);
                 i++;
+                if (isTenantSpecificIndex) {
+                    PColumn indexIdColumn = table.getPKColumns().get(posOffset+1);
+                    columnIndexesToBe[i] = indexIdColumn.getPosition();
+                    pkColumnsSet.set(pkSlotIndexesToBe[i] = posOffset+1);
+                    targetColumns.set(i, indexIdColumn);
+                    i++;
+                }
             }
             i = posOffset;
             for ( ; i < table.getPKColumns().size(); i++) {
@@ -370,7 +378,7 @@ public class UpsertCompiler {
             // Cannot auto commit if doing aggregation or topN or salted
             // Salted causes problems because the row may end up living on a different region
         } else {
-            nValuesToSet = valueNodes.size() + addViewColumns.size() + (isTenantSpecific ? 1 : 0);
+            nValuesToSet = valueNodes.size() + addViewColumns.size() + (isTenantSpecific ? 1 : 0) + (isTenantSpecificIndex ? 1 : 0);
         }
         final RowProjector projector = rowProjectorToBe;
         final UpsertingParallelIteratorFactory upsertParallelIteratorFactory = upsertParallelIteratorFactoryToBe;
@@ -660,6 +668,9 @@ public class UpsertCompiler {
         }
         if (isTenantSpecific) {
             values[nodeIndex++] = connection.getTenantId().getBytes();
+            if (isTenantSpecificIndex) {
+                values[nodeIndex++] = PDataType.SMALLINT.toBytes(table.getViewIndexId());
+            }
         }
         return new MutationPlan() {
 
@@ -786,6 +797,9 @@ public class UpsertCompiler {
         }
         if (table.isMultiTenant() && tenantId != null) {
             selectNodes.add(new AliasedNode(null, new LiteralParseNode(tenantId)));
+            if (table.getViewIndexId() != null) {
+                selectNodes.add(new AliasedNode(null, new LiteralParseNode(table.getViewIndexId())));
+            }
         }
         
         return SelectStatement.create(select, selectNodes);

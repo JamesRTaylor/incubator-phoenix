@@ -802,6 +802,20 @@ public class ConnectionQueryServicesImpl extends DelegateQueryServices implement
                 physicalTableName = SchemaUtil.getTableNameAsBytes(schemaBytes, tableBytes);
             }
             ensureTableCreated(physicalTableName, tableType, tableProps, families, splits);
+            
+            boolean isMultiTenant = MetaDataUtil.isMultiTenant(m);
+            if (isMultiTenant) {
+                Long maxFileSize = (Long)tableProps.get(HTableDescriptor.MAX_FILESIZE);
+                if (maxFileSize == null) {
+                    maxFileSize = this.config.getLong(HConstants.HREGION_MAX_FILESIZE, HConstants.DEFAULT_MAX_FILE_SIZE);
+                }
+                byte[] physicalIndexName = MetaDataUtil.getMultiTenantPhysicalIndexName(physicalTableName);
+                
+                int indexMaxFileSizePerc = config.getInt(QueryServices.INDEX_MAX_FILESIZE_PERC_ATTRIB, QueryServicesOptions.DEFAULT_INDEX_MAX_FILESIZE_PERC);
+                long indexMaxFileSize = maxFileSize * indexMaxFileSizePerc / 100;
+                tableProps.put(HTableDescriptor.MAX_FILESIZE, indexMaxFileSize);
+                ensureTableCreated(physicalIndexName, tableType, tableProps, families, splits);
+            }
         }
         
         byte[] tableKey = SchemaUtil.getTableKey(tenantIdBytes, schemaBytes, tableBytes);

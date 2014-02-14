@@ -36,6 +36,9 @@ import org.apache.phoenix.jdbc.PhoenixParameterMetaData;
 import org.apache.phoenix.jdbc.PhoenixStatement;
 import org.apache.phoenix.parse.SelectStatement;
 import org.apache.phoenix.query.QueryConstants;
+import org.apache.phoenix.schema.AmbiguousColumnException;
+import org.apache.phoenix.schema.ColumnFamilyNotFoundException;
+import org.apache.phoenix.schema.ColumnNotFoundException;
 import org.apache.phoenix.schema.ColumnRef;
 import org.apache.phoenix.schema.PColumn;
 import org.apache.phoenix.schema.PColumnFamily;
@@ -139,7 +142,7 @@ public class PostDDLCompiler {
                                 if (deleteList.isEmpty()) {
                                     scan.setAttribute(UngroupedAggregateRegionObserver.DELETE_AGG, QueryConstants.TRUE);
                                     // In the case of a row deletion, add index metadata so mutable secondary indexing works
-                                    /* TODO
+                                    /* TODO: we currently manually run a scan to delete the index data here
                                     ImmutableBytesWritable ptr = context.getTempPtr();
                                     tableRef.getTable().getIndexMaintainers(ptr);
                                     if (ptr.getLength() > 0) {
@@ -181,7 +184,18 @@ public class PostDDLCompiler {
                                 }
                                 projector = new RowProjector(projector,false);
                             }
-                            WhereCompiler.compile(context, select); // Push where clause into scan
+                            // Ignore exceptions due to not being able to resolve any view columns,
+                            // as this just means the view is invalid. Continue on and try to perform
+                            // any other Post DDL operations.
+                            try {
+                                WhereCompiler.compile(context, select); // Push where clause into scan
+                            } catch (ColumnFamilyNotFoundException e) {
+                                continue;
+                            } catch (ColumnNotFoundException e) {
+                                continue;
+                            } catch (AmbiguousColumnException e) {
+                                continue;
+                            }
                             QueryPlan plan = new AggregatePlan(context, select, tableRef, projector, null, OrderBy.EMPTY_ORDER_BY, null, GroupBy.EMPTY_GROUP_BY, null);
                             ResultIterator iterator = plan.iterator();
                             try {

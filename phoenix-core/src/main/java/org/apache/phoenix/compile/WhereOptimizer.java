@@ -49,13 +49,13 @@ import org.apache.phoenix.parse.FilterableStatement;
 import org.apache.phoenix.parse.HintNode.Hint;
 import org.apache.phoenix.query.KeyRange;
 import org.apache.phoenix.query.QueryConstants;
-import org.apache.phoenix.schema.SortOrder;
 import org.apache.phoenix.schema.PColumn;
 import org.apache.phoenix.schema.PDataType;
 import org.apache.phoenix.schema.PName;
 import org.apache.phoenix.schema.PTable;
 import org.apache.phoenix.schema.RowKeySchema;
 import org.apache.phoenix.schema.SaltingUtil;
+import org.apache.phoenix.schema.SortOrder;
 import org.apache.phoenix.schema.tuple.Tuple;
 import org.apache.phoenix.util.ByteUtil;
 import org.apache.phoenix.util.SchemaUtil;
@@ -153,12 +153,21 @@ public class WhereOptimizer {
             pkPos++;
         }
         
-        // aAd tenant data isolation for tenant-specific tables
+        // Add tenant data isolation for tenant-specific tables
         if (tenantId != null && table.isMultiTenant()) {
             KeyRange tenantIdKeyRange = KeyRange.getKeyRange(tenantId.getBytes());
             cnf.add(singletonList(tenantIdKeyRange));
             if (iterator.hasNext()) iterator.next();
             pkPos++;
+            // Add unique index ID for tenant-specific index. This ensures
+            // that different indexes don't interleave.
+            if (table.getViewIndexId() != null) {
+                Short indexId = table.getViewIndexId();
+                KeyRange indexIdKeyRange = KeyRange.getKeyRange(PDataType.SMALLINT.toBytes(indexId));
+                cnf.add(singletonList(indexIdKeyRange));
+                if (iterator.hasNext()) iterator.next();
+                pkPos++;
+            }
         }
         // Concat byte arrays of literals to form scan start key
         while (iterator.hasNext()) {

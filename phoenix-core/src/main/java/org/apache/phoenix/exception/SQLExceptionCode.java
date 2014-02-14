@@ -209,6 +209,7 @@ public enum SQLExceptionCode {
     INSUFFICIENT_MULTI_TENANT_COLUMNS(1040, "42Y96", "A MULTI_TENANT table must have 2 or more PK columns with the first column being VARCHAR or CHAR."),
     VIEW_WHERE_IS_CONSTANT(1045, "43A02", "WHERE clause in VIEW should not evaluate to a constant."),
     CANNOT_UPDATE_VIEW_COLUMN(1046, "43A03", "Column used in WHERE clause of VIEW may not be updated."),
+    TOO_MANY_TENANT_SPECIFIC_INDEXES(1047, "43A04", "Too many tenant-specific indexes have already been created."),
         
     /** Sequence related */
     SEQUENCE_ALREADY_EXIST(1200, "42Z00", "Sequence already exists.", new Factory() {

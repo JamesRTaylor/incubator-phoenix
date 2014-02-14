@@ -108,6 +108,7 @@ public class PTableImpl implements PTable {
     private boolean disableWAL;
     private boolean multiTenant;
     private ViewType viewType;
+    private Short viewIndexId;
     
     public PTableImpl() {
     }
@@ -164,28 +165,28 @@ public class PTableImpl implements PTable {
         return new PTableImpl(
                 table.getSchemaName(), table.getTableName(), table.getType(), table.getIndexState(), timeStamp, table.getSequenceNumber() + 1, 
                 table.getPKName(), table.getBucketNum(), getColumnsToClone(table), table.getParentTableName(), indexes, table.isImmutableRows(),
-                table.getPhysicalNames(), table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType());
+                table.getPhysicalNames(), table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType(), table.getViewIndexId());
     }
 
     public static PTableImpl makePTable(PTable table, List<PColumn> columns) throws SQLException {
         return new PTableImpl(
                 table.getSchemaName(), table.getTableName(), table.getType(), table.getIndexState(), table.getTimeStamp(), table.getSequenceNumber(), 
                 table.getPKName(), table.getBucketNum(), columns, table.getParentTableName(), table.getIndexes(), table.isImmutableRows(), table.getPhysicalNames(),
-                table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType());
+                table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType(), table.getViewIndexId());
     }
 
     public static PTableImpl makePTable(PTable table, long timeStamp, long sequenceNumber, List<PColumn> columns) throws SQLException {
         return new PTableImpl(
                 table.getSchemaName(), table.getTableName(), table.getType(), table.getIndexState(), timeStamp, sequenceNumber, 
                 table.getPKName(), table.getBucketNum(), columns, table.getParentTableName(), table.getIndexes(), table.isImmutableRows(), table.getPhysicalNames(),
-                table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType());
+                table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType(), table.getViewIndexId());
     }
 
     public static PTableImpl makePTable(PTable table, long timeStamp, long sequenceNumber, List<PColumn> columns, boolean isImmutableRows) throws SQLException {
         return new PTableImpl(
                 table.getSchemaName(), table.getTableName(), table.getType(), table.getIndexState(), timeStamp, sequenceNumber, 
                 table.getPKName(), table.getBucketNum(), columns, table.getParentTableName(), table.getIndexes(), isImmutableRows,
-                table.getPhysicalNames(), table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType());
+                table.getPhysicalNames(), table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType(), table.getViewIndexId());
     }
 
     public static PTableImpl makePTable(PTable table, PIndexState state) throws SQLException {
@@ -193,21 +194,21 @@ public class PTableImpl implements PTable {
                 table.getSchemaName(), table.getTableName(), table.getType(), state, table.getTimeStamp(), table.getSequenceNumber(), 
                 table.getPKName(), table.getBucketNum(), getColumnsToClone(table), table.getParentTableName(), 
                 table.getIndexes(), table.isImmutableRows(), table.getPhysicalNames(),
-                table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType());
+                table.getDefaultFamilyName(), table.getViewStatement(), table.isWALDisabled(), table.isMultiTenant(), table.getViewType(), table.getViewIndexId());
     }
 
     public static PTableImpl makePTable(PName schemaName, PName tableName, PTableType type, PIndexState state, long timeStamp, long sequenceNumber, PName pkName,
             Integer bucketNum, List<PColumn> columns, PName dataTableName, List<PTable> indexes, boolean isImmutableRows, List<PName> physicalNames,
-            PName defaultFamilyName, String viewExpression, boolean disableWAL, boolean multiTenant, ViewType viewType) throws SQLException {
+            PName defaultFamilyName, String viewExpression, boolean disableWAL, boolean multiTenant, ViewType viewType, Short viewIndexId) throws SQLException {
         return new PTableImpl(schemaName, tableName, type, state, timeStamp, sequenceNumber, pkName, bucketNum, columns, dataTableName, indexes,
-                isImmutableRows, physicalNames, defaultFamilyName, viewExpression, disableWAL, multiTenant, viewType);
+                isImmutableRows, physicalNames, defaultFamilyName, viewExpression, disableWAL, multiTenant, viewType, viewIndexId);
     }
 
     private PTableImpl(PName schemaName, PName tableName, PTableType type, PIndexState state, long timeStamp, long sequenceNumber, PName pkName,
             Integer bucketNum, List<PColumn> columns, PName dataTableName, List<PTable> indexes, boolean isImmutableRows, List<PName> physicalNames,
-            PName defaultFamilyName, String viewExpression, boolean disableWAL, boolean multiTenant, ViewType viewType) throws SQLException {
+            PName defaultFamilyName, String viewExpression, boolean disableWAL, boolean multiTenant, ViewType viewType, Short viewIndexId) throws SQLException {
         init(schemaName, tableName, type, state, timeStamp, sequenceNumber, pkName, bucketNum, columns, new PTableStatsImpl(),
-                dataTableName, indexes, isImmutableRows, physicalNames, defaultFamilyName, viewExpression, disableWAL, multiTenant, viewType);
+                dataTableName, indexes, isImmutableRows, physicalNames, defaultFamilyName, viewExpression, disableWAL, multiTenant, viewType, viewIndexId);
     }
 
     @Override
@@ -222,7 +223,7 @@ public class PTableImpl implements PTable {
     
     private void init(PName schemaName, PName tableName, PTableType type, PIndexState state, long timeStamp, long sequenceNumber, PName pkName,
             Integer bucketNum, List<PColumn> columns, PTableStats stats, PName parentTableName, List<PTable> indexes, boolean isImmutableRows,
-            List<PName> physicalNames, PName defaultFamilyName, String viewExpression, boolean disableWAL, boolean multiTenant, ViewType viewType) throws SQLException {
+            List<PName> physicalNames, PName defaultFamilyName, String viewExpression, boolean disableWAL, boolean multiTenant, ViewType viewType, Short viewIndexId) throws SQLException {
         if (schemaName == null) {
             throw new NullPointerException();
         }
@@ -240,6 +241,7 @@ public class PTableImpl implements PTable {
         this.disableWAL = disableWAL;
         this.multiTenant = multiTenant;
         this.viewType = viewType;
+        this.viewIndexId = viewIndexId;
         List<PColumn> pkColumns;
         PColumn[] allColumns;
 
@@ -649,9 +651,14 @@ public class PTableImpl implements PTable {
         PName tableName = PNameFactory.newName(tableNameBytes);
         PTableType tableType = PTableType.values()[WritableUtils.readVInt(input)];
         PIndexState indexState = null;
+        Short viewIndexId = null;
         if (tableType == PTableType.INDEX) {
             int ordinal = WritableUtils.readVInt(input);
-            if (ordinal >= 0) {
+            if (ordinal < 0) {
+                viewIndexId = input.readShort();
+            }
+            ordinal = Math.abs(ordinal) - 1;
+            if (ordinal < PIndexState.values().length) {
                 indexState = PIndexState.values()[ordinal];
             }
         }
@@ -711,7 +718,7 @@ public class PTableImpl implements PTable {
             init(schemaName, tableName, tableType, indexState, timeStamp, sequenceNumber, pkName,
                  bucketNum.equals(NO_SALTING) ? null : bucketNum, columns, stats, dataTableName,
                  indexes, isImmutableRows, physicalNames, defaultFamilyName,
-                 viewStatement, disableWAL, multiTenant, viewType);
+                 viewStatement, disableWAL, multiTenant, viewType, viewIndexId);
         } catch (SQLException e) {
             throw new RuntimeException(e); // Impossible
         }
@@ -723,7 +730,10 @@ public class PTableImpl implements PTable {
         Bytes.writeByteArray(output, tableName.getBytes());
         WritableUtils.writeVInt(output, type.ordinal());
         if (type == PTableType.INDEX) {
-            WritableUtils.writeVInt(output, state == null ? -1 : state.ordinal());
+            WritableUtils.writeVInt(output, (((state == null ? PIndexState.values().length : state.ordinal()) + 1) * (viewIndexId == null ? 1 : -1)));
+            if (viewIndexId != null) {
+                output.writeShort(viewIndexId);
+            }
         }
         WritableUtils.writeVLong(output, sequenceNumber);
         output.writeLong(timeStamp);
@@ -859,5 +869,10 @@ public class PTableImpl implements PTable {
     @Override
     public boolean isWALDisabled() {
         return disableWAL;
+    }
+
+    @Override
+    public Short getViewIndexId() {
+        return viewIndexId;
     }
 }

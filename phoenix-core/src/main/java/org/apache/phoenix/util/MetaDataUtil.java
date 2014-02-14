@@ -30,7 +30,9 @@ import org.apache.phoenix.coprocessor.MetaDataProtocol;
 import org.apache.phoenix.jdbc.PhoenixDatabaseMetaData;
 import org.apache.phoenix.query.QueryConstants;
 import org.apache.phoenix.schema.PDataType;
+import org.apache.phoenix.schema.PName;
 import org.apache.phoenix.schema.PTableType;
+import org.apache.phoenix.schema.SequenceKey;
 import org.apache.phoenix.schema.SortOrder;
 
 
@@ -228,5 +230,43 @@ public class MetaDataUtil {
 
     public static byte[] getParentLinkKey(byte[] tenantId, byte[] schemaName, byte[] tableName, byte[] indexName) {
         return ByteUtil.concat(tenantId == null ? ByteUtil.EMPTY_BYTE_ARRAY : tenantId, QueryConstants.SEPARATOR_BYTE_ARRAY, schemaName == null ? ByteUtil.EMPTY_BYTE_ARRAY : schemaName, QueryConstants.SEPARATOR_BYTE_ARRAY, tableName, QueryConstants.SEPARATOR_BYTE_ARRAY, QueryConstants.SEPARATOR_BYTE_ARRAY, indexName);
+    }
+    
+    public static boolean isMultiTenant(Mutation m) {
+        return Boolean.TRUE.equals(PDataType.BOOLEAN.toObject(MetaDataUtil.getMutationKVByteValue(m, PhoenixDatabaseMetaData.MULTI_TENANT_BYTES)));
+    }
+    
+    public static final String MULTI_TENANT_INDEX_PREFIX = "_IDX_";
+    public static final byte[] MULTI_TENANT_INDEX_PREFIX_BYTES = Bytes.toBytes(MULTI_TENANT_INDEX_PREFIX);
+    public static final String MULTI_TENANT_SEQUENCE_PREFIX = "_SEQ_";
+    public static final byte[] MULTI_TENANT_SEQUENCE_PREFIX_BYTES = Bytes.toBytes(MULTI_TENANT_SEQUENCE_PREFIX);
+    
+    public static byte[] getMultiTenantPhysicalIndexName(byte[] physicalTableName) {
+        return ByteUtil.concat(MULTI_TENANT_INDEX_PREFIX_BYTES, physicalTableName);
+    }
+
+    public static String getMultTenantSeqSchemaName(String schemaName) {
+        return schemaName;
+    }
+
+    public static String getMultTenantSeqTableName(String tableName) {
+        return MULTI_TENANT_SEQUENCE_PREFIX + tableName;
+    }
+
+    public static SequenceKey getMultTenantSeqKey(String tenantId, PName physicalName) {
+        String fullName = physicalName.getString();
+        String schemaName = SchemaUtil.getSchemaNameFromFullName(fullName);
+        String tableName = MULTI_TENANT_SEQUENCE_PREFIX + SchemaUtil.getTableNameFromFullName(fullName);
+        return new SequenceKey(tenantId, schemaName, tableName);
+    }
+
+    public static PDataType getIndexIdDataType() {
+        return PDataType.SMALLINT;
+    }
+
+    public static final String INDEX_ID_COLUMN_NAME = "_INDEX_ID";
+
+    public static String getIndexIdColumnName() {
+        return INDEX_ID_COLUMN_NAME;
     }
 }
