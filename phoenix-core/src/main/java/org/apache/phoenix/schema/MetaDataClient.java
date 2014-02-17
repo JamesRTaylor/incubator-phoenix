@@ -316,7 +316,7 @@ public class MetaDataClient {
     }
 
 
-    private void addColumnMutation(String schemaName, String tableName, PColumn column, PreparedStatement colUpsert, String parentTableName, byte[] viewConstant) throws SQLException {
+    private void addColumnMutation(String schemaName, String tableName, PColumn column, PreparedStatement colUpsert, String parentTableName) throws SQLException {
         colUpsert.setString(1, connection.getTenantId() == null ? null : connection.getTenantId().getString());
         colUpsert.setString(2, schemaName);
         colUpsert.setString(3, tableName);
@@ -342,7 +342,7 @@ public class MetaDataClient {
         } else {
             colUpsert.setInt(13, column.getArraySize());
         }
-        colUpsert.setBytes(14, viewConstant);
+        colUpsert.setBytes(14, column.getViewConstant());
         colUpsert.execute();
     }
 
@@ -527,9 +527,11 @@ public class MetaDataClient {
                     ColumnName colName = ColumnName.caseSensitiveColumnName(IndexUtil.getIndexColumnName(col));
                     allPkColumns.add(new Pair<ColumnName, SortOrder>(colName, col.getSortOrder()));
                     columnDefs.add(FACTORY.columnDef(colName, dataType.getSqlTypeName(), col.isNullable(), col.getMaxLength(), col.getScale(), false, SortOrder.getDefault()));
+                }
+                if (dataTable.getType() == PTableType.VIEW && dataTable.isMultiTenant() /* FIXME: remove this condition soon*/) {
                     // Next add index ID column
-                    dataType = MetaDataUtil.getIndexIdDataType();
-                    colName = ColumnName.caseSensitiveColumnName(MetaDataUtil.getIndexIdColumnName());
+                    PDataType dataType = MetaDataUtil.getViewIndexIdDataType();
+                    ColumnName colName = ColumnName.caseSensitiveColumnName(MetaDataUtil.getViewIndexIdColumnName());
                     allPkColumns.add(new Pair<ColumnName, SortOrder>(colName, SortOrder.getDefault()));
                     columnDefs.add(FACTORY.columnDef(colName, dataType.getSqlTypeName(), false, null, null, false, SortOrder.getDefault()));
                 }
@@ -671,25 +673,35 @@ public class MetaDataClient {
             String parentTableName = null;
             Long scn = connection.getSCN();
             long timestamp = scn == null ? HConstants.LATEST_TIMESTAMP : scn;
-            String tenantId = connection.getTenantId() == null ? null : connection.getTenantId().getString();
+            PName tenantId = connection.getTenantId();
+            String tenantIdStr = tenantId == null ? null : connection.getTenantId().getString();
             boolean isParentImmutableRows = false;
             Short viewIndexId = null;
             boolean multiTenant = false;
             Integer saltBucketNum = null;
             String defaultFamilyName = null;
             boolean isImmutableRows = false;
+            List<PName> physicalNames = Collections.emptyList();
             if (parent != null && tableType == PTableType.INDEX) {
                 // Tenant-specific index on view
                 // TODO: Can we support a multi-tenant index directly on a multi-tenant
                 // table instead of only a view? We don't have anywhere to put the link
-                // from the table to the index - maybe that's ok?
+                // from the table to the index, though.
                 if (parent.isMultiTenant() && parent.getType() == PTableType.VIEW) {
                     PName physicalName = parent.getPhysicalName();
-                    SequenceKey key = MetaDataUtil.getMultTenantSeqKey(tenantId, physicalName);
+                    SequenceKey key = MetaDataUtil.getViewIndexSequenceKey(tenantIdStr, physicalName);
                     // Create at parent timestamp as we know that will be earlier than now
                     // and earlier than any SCN if one is set.
+                    // TODO: If sequence already exists, then we don't need to ensure metadata is already created.
+                    // Set physicalName to null in this case?
                     createSequence(key.getSchemaName(), key.getSequenceName(), true, Short.MIN_VALUE, 1, 1, parent.getTimeStamp());
-                    long seqValue = connection.getQueryServices().getSequenceValue(key, timestamp);
+                    long[] seqValues = new long[1];
+                    SQLException[] sqlExceptions = new SQLException[1];
+                    connection.getQueryServices().incrementSequenceValues(Collections.singletonList(key), timestamp, seqValues, sqlExceptions);
+                    if (sqlExceptions[0] != null) {
+                        throw sqlExceptions[0];
+                    }
+                    long seqValue = seqValues[0];
                     if (seqValue > Short.MAX_VALUE) {
                         throw new SQLExceptionInfo.Builder(SQLExceptionCode.TOO_MANY_TENANT_SPECIFIC_INDEXES)
                         .setSchemaName(SchemaUtil.getSchemaNameFromFullName(physicalName.getString())).setTableName(SchemaUtil.getTableNameFromFullName(physicalName.getString())).build().buildException();
@@ -697,6 +709,8 @@ public class MetaDataClient {
                     viewIndexId = (short) seqValue;
                     saltBucketNum = parent.getBucketNum();
                     defaultFamilyName = parent.getDefaultFamilyName() == null ? null : parent.getDefaultFamilyName().getString();
+                    // Set physical name of view index table
+                    physicalNames = Collections.singletonList(PNameFactory.newName(MetaDataUtil.getMultiTenantPhysicalIndexName(physicalName.getBytes())));
                 }
                 
                 multiTenant = parent.isMultiTenant();
@@ -763,7 +777,7 @@ public class MetaDataClient {
                 }
             }
             
-            // Can't set any of these on views or tenant-specific indexes
+            // Can't set any of these on views or shared indexes on views
             if (tableType != PTableType.VIEW && viewIndexId == null) {
                 saltBucketNum = (Integer) tableProps.remove(PhoenixDatabaseMetaData.SALT_BUCKETS);
                 if (saltBucketNum != null && (saltBucketNum < 0 || saltBucketNum > SaltingUtil.MAX_BUCKET_NUM)) {
@@ -804,12 +818,11 @@ public class MetaDataClient {
             List<PColumn> columns;
             LinkedHashSet<PColumn> pkColumns;    
             
-            if (tenantId != null && tableType != PTableType.VIEW) {
+            if (tenantId != null && (tableType != PTableType.VIEW && viewIndexId == null)) {
                 throw new SQLExceptionInfo.Builder(SQLExceptionCode.CANNOT_CREATE_TENANT_SPECIFIC_TABLE)
                     .setSchemaName(schemaName).setTableName(tableName).build().buildException();
             }
             
-            List<PName> physicalNames = Collections.emptyList();
             if (tableType == PTableType.VIEW) {
                 physicalNames = Collections.singletonList(PNameFactory.newName(parent.getPhysicalName().getString()));
                 if (viewType == ViewType.MAPPED) {
@@ -826,21 +839,25 @@ public class MetaDataClient {
                     columns = newArrayListWithExpectedSize(parent.getColumns().size() + colDefs.size());
                     columns.addAll(parent.getColumns());
                     pkColumns = newLinkedHashSet(parent.getPKColumns());
-
-                    // Add row linking from data table row to physical table row
-                    PreparedStatement linkStatement = connection.prepareStatement(CREATE_LINK);
-                    for (PName physicalName : physicalNames) {
-                        linkStatement.setString(1, connection.getTenantId() == null ? null : connection.getTenantId().getString());
-                        linkStatement.setString(2, schemaName);
-                        linkStatement.setString(3, tableName);
-                        linkStatement.setString(4, physicalName.getString());
-                        linkStatement.setByte(5, LinkType.PHYSICAL_TABLE.getSerializedValue());
-                        linkStatement.execute();
-                    }
                 }
             } else {
                 columns = newArrayListWithExpectedSize(colDefs.size());
                 pkColumns = newLinkedHashSetWithExpectedSize(colDefs.size() + 1); // in case salted  
+            }
+
+            // Don't add link for mapped view, as it just points back to itself and causes the drop to
+            // fail because it looks like there's always a view associated with it.
+            if (viewType != ViewType.MAPPED && !physicalNames.isEmpty()) {
+                // Add row linking from data table row to physical table row
+                PreparedStatement linkStatement = connection.prepareStatement(CREATE_LINK);
+                for (PName physicalName : physicalNames) {
+                    linkStatement.setString(1, connection.getTenantId() == null ? null : connection.getTenantId().getString());
+                    linkStatement.setString(2, schemaName);
+                    linkStatement.setString(3, tableName);
+                    linkStatement.setString(4, physicalName.getString());
+                    linkStatement.setByte(5, LinkType.PHYSICAL_TABLE.getSerializedValue());
+                    linkStatement.execute();
+                }
             }
             
             PreparedStatement colUpsert = connection.prepareStatement(INSERT_COLUMN);
@@ -973,13 +990,13 @@ public class MetaDataClient {
             
             // Bootstrapping for our SYSTEM.TABLE that creates itself before it exists 
             if (SchemaUtil.isMetaTable(schemaName,tableName)) {
-                PTable table = PTableImpl.makePTable(PNameFactory.newName(schemaName),PNameFactory.newName(tableName), tableType, null,
-                        MetaDataProtocol.MIN_TABLE_TIMESTAMP, PTable.INITIAL_SEQ_NUM, PNameFactory.newName(QueryConstants.SYSTEM_TABLE_PK_NAME),
-                        null, columns, null, Collections.<PTable>emptyList(), isImmutableRows, 
-                        Collections.<PName>emptyList(), defaultFamilyName == null ? null : PNameFactory.newName(defaultFamilyName),
-                        null, Boolean.TRUE.equals(disableWAL), false, null, viewIndexId);
+                PTable table = PTableImpl.makePTable(tenantId,PNameFactory.newName(schemaName), PNameFactory.newName(tableName), tableType,
+                        null, MetaDataProtocol.MIN_TABLE_TIMESTAMP, PTable.INITIAL_SEQ_NUM,
+                        PNameFactory.newName(QueryConstants.SYSTEM_TABLE_PK_NAME), null, columns, null, Collections.<PTable>emptyList(), 
+                        isImmutableRows, Collections.<PName>emptyList(),
+                        defaultFamilyName == null ? null : PNameFactory.newName(defaultFamilyName), null, Boolean.TRUE.equals(disableWAL), false, null, viewIndexId);
                 connection.addTable(table);
-            } else if (tableType == PTableType.INDEX) {
+            } else if (tableType == PTableType.INDEX && viewIndexId == null) {
                 if (tableProps.get(HTableDescriptor.MAX_FILESIZE) == null) {
                     int nIndexRowKeyColumns = isPK ? 1 : pkColumnsNames.size();
                     int nIndexKeyValueColumns = columns.size() - nIndexRowKeyColumns;
@@ -1006,8 +1023,17 @@ public class MetaDataClient {
             for (int i = 0; i < columns.size(); i++) {
                 PColumn column = columns.get(i);
                 int columnPosition = column.getPosition();
-                byte[] viewConstant = columnPosition < viewColumnConstants.length ? viewColumnConstants[columnPosition] : null;
-                addColumnMutation(schemaName, tableName, column, colUpsert, parentTableName, viewConstant);
+                final byte[] viewConstant = columnPosition < viewColumnConstants.length ? viewColumnConstants[columnPosition] : null;
+                // For client-side cache, we need to update the column
+                if (viewConstant != null) {
+                    columns.set(i, column = new DelegateColumn(column) {
+                        @Override
+                        public byte[] getViewConstant() {
+                            return viewConstant;
+                        }
+                    });
+                }
+                addColumnMutation(schemaName, tableName, column, colUpsert, parentTableName);
             }
             
             tableMetaData.addAll(connection.getMutationState().toMutations().next().getSecond());
@@ -1016,7 +1042,7 @@ public class MetaDataClient {
             String dataTableName = parent == null || tableType == PTableType.VIEW ? null : parent.getTableName().getString();
             PIndexState indexState = parent == null || tableType == PTableType.VIEW  ? null : PIndexState.BUILDING;
             PreparedStatement tableUpsert = connection.prepareStatement(CREATE_TABLE);
-            tableUpsert.setString(1, tenantId);
+            tableUpsert.setString(1, tenantIdStr);
             tableUpsert.setString(2, schemaName);
             tableUpsert.setString(3, tableName);
             tableUpsert.setString(4, tableType.getSerializedValue());
@@ -1063,7 +1089,8 @@ public class MetaDataClient {
             MetaDataMutationResult result = connection.getQueryServices().createTable(
                     tableMetaData, 
                     viewType == ViewType.MAPPED ? physicalNames.get(0).getBytes() : null,
-                    tableType, tableProps, familyPropList, splits);
+                    // Use VIEW as type for index on VIEW too
+                    viewIndexId == null ? tableType : PTableType.VIEW, tableProps, familyPropList, splits);
             MutationCode code = result.getMutationCode();
             switch(code) {
             case TABLE_ALREADY_EXISTS:
@@ -1084,11 +1111,10 @@ public class MetaDataClient {
                 throw new ConcurrentTableMutationException(schemaName, tableName);
             default:
                 PTable table =  PTableImpl.makePTable(
-                        PNameFactory.newName(schemaName), PNameFactory.newName(tableName), tableType, indexState, result.getMutationTime(), PTable.INITIAL_SEQ_NUM, 
-                        pkName == null ? null : PNameFactory.newName(pkName), saltBucketNum, columns, dataTableName == null ? null : PNameFactory.newName(dataTableName), 
-                        Collections.<PTable>emptyList(), isImmutableRows, physicalNames,
-                        defaultFamilyName == null ? null : PNameFactory.newName(defaultFamilyName),
-                                viewStatement, Boolean.TRUE.equals(disableWAL), multiTenant, viewType, viewIndexId);
+                        tenantId, PNameFactory.newName(schemaName), PNameFactory.newName(tableName), tableType, indexState, result.getMutationTime(), 
+                        PTable.INITIAL_SEQ_NUM, pkName == null ? null : PNameFactory.newName(pkName), saltBucketNum, columns, 
+                        dataTableName == null ? null : PNameFactory.newName(dataTableName), Collections.<PTable>emptyList(), isImmutableRows, physicalNames,
+                        defaultFamilyName == null ? null : PNameFactory.newName(defaultFamilyName), viewStatement, Boolean.TRUE.equals(disableWAL), multiTenant, viewType, viewIndexId);
                 connection.addTable(table);
                 return table;
             }
@@ -1137,8 +1163,11 @@ public class MetaDataClient {
         if (isSalted) {
             iterator.next();
         }
+        // Tenant ID must be VARCHAR or CHAR and be NOT NULL
+        // NOT NULL is a requirement, since otherwise the table key would conflict
+        // potentially with the global table definition.
         PColumn tenantIdCol = iterator.next();
-        if (!tenantIdCol.getDataType().isCoercibleTo(VARCHAR)) {
+        if (!tenantIdCol.getDataType().isCoercibleTo(VARCHAR) || tenantIdCol.isNullable()) {
             throw new SQLExceptionInfo.Builder(INSUFFICIENT_MULTI_TENANT_COLUMNS).setSchemaName(schemaName).setTableName(tableName).build().buildException();
         }
     }
@@ -1303,7 +1332,7 @@ public class MetaDataClient {
             // Outside of retry loop, as we're removing the property and wouldn't find it the second time
             Boolean isImmutableRowsProp = (Boolean)statement.getProps().remove(PTable.IS_IMMUTABLE_ROWS_PROP_NAME);
             Boolean multiTenantProp = (Boolean)statement.getProps().remove(PhoenixDatabaseMetaData.MULTI_TENANT);
-            boolean disableWAL = Boolean.TRUE.equals(statement.getProps().remove(DISABLE_WAL));
+            Boolean disableWALProp = (Boolean)statement.getProps().remove(DISABLE_WAL);
             
             boolean retried = false;
             while (true) {
@@ -1335,7 +1364,11 @@ public class MetaDataClient {
                 }
                 boolean multiTenant = table.isMultiTenant();
                 if (multiTenantProp != null) {
-                    multiTenant = Boolean.TRUE.equals(multiTenantProp);
+                    multiTenant = multiTenantProp;
+                }
+                boolean disableWAL = table.isWALDisabled();
+                if (disableWALProp != null) {
+                    disableWAL = disableWALProp;
                 }
                 
                 if (statement.getProps().get(PhoenixDatabaseMetaData.SALT_BUCKETS) != null) {
@@ -1359,6 +1392,14 @@ public class MetaDataClient {
                 List<PColumn> columns = Lists.newArrayListWithExpectedSize(columnDefs.size());
 
                 if ( columnDefs.size() > 0 ) {
+                    // Disallow setting these props for now on an add column, as that
+                    // would a bit of a strange thing to do. We can revisit later if
+                    // need be. We'd need to do the error checking we do in the else
+                    // if we want to support this.
+                    if (isImmutableRowsProp != null || multiTenantProp != null) {
+                        throw new SQLExceptionInfo.Builder(SQLExceptionCode.SET_UNSUPPORTED_PROP_ON_ALTER_TABLE)
+                        .setTableName(table.getName().getString()).build().buildException();
+                    }
                     for( ColumnDef colDef : columnDefs) {
                         if (colDef != null && !colDef.isNull()) {
                             if(colDef.isPK()) {
@@ -1372,7 +1413,7 @@ public class MetaDataClient {
                         throwIfAlteringViewPK(colDef, table);
                         PColumn column = newColumn(position++, colDef, PrimaryKeyConstraint.EMPTY, table.getDefaultFamilyName() == null ? null : table.getDefaultFamilyName().getString());
                         columns.add(column);
-                        addColumnMutation(schemaName, tableName, column, colUpsert, null, null);
+                        addColumnMutation(schemaName, tableName, column, colUpsert, null);
 
                         // TODO: support setting properties on other families?
                         if (column.getFamilyName() != null) {
@@ -1385,7 +1426,7 @@ public class MetaDataClient {
                                 ColumnName indexColName = ColumnName.caseSensitiveColumnName(IndexUtil.getIndexColumnName(column));
                                 ColumnDef indexColDef = FACTORY.columnDef(indexColName, indexColDataType.getSqlTypeName(), column.isNullable(), column.getMaxLength(), column.getScale(), true, column.getSortOrder());
                                 PColumn indexColumn = newColumn(indexColPosition, indexColDef, PrimaryKeyConstraint.EMPTY, index.getDefaultFamilyName() == null ? null : index.getDefaultFamilyName().getString());
-                                addColumnMutation(schemaName, index.getTableName().getString(), indexColumn, colUpsert, index.getParentTableName().getString(), null);
+                                addColumnMutation(schemaName, index.getTableName().getString(), indexColumn, colUpsert, index.getParentTableName().getString());
                             }
                         }
 
@@ -1411,7 +1452,9 @@ public class MetaDataClient {
                             throw new SQLExceptionInfo.Builder(SQLExceptionCode.INVALID_MUTABLE_INDEX_CONFIG).setSchemaName(schemaName).setTableName(tableName).build().buildException();
                         }
                     }
-                    // TODO: if switching table to multiTenant or multiType, do some error checking
+                    if (multiTenant && !table.isMultiTenant()) {
+                        throwIfInsufficientColumns(schemaName, tableName, table.getPKColumns(), table.getBucketNum()!=null, multiTenant);
+                    }
                 }
                 
                 if (isAddingPKColumn && !table.getIndexes().isEmpty()) {

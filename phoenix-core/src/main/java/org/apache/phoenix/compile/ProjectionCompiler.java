@@ -121,11 +121,11 @@ public class ProjectionCompiler {
         PTable table = tableRef.getTable();
         int posOffset = table.getBucketNum() == null ? 0 : 1;
         // In SELECT *, don't include tenant column or index ID column for tenant connection
-        if (tableRef.getTable().isMultiTenant() && context.getConnection().getTenantId() != null) {
+        if (table.isMultiTenant() && context.getConnection().getTenantId() != null) {
             posOffset++;
-            if (tableRef.getTable().getViewIndexId() != null) {
-                posOffset++;
-            }
+        }
+        if (table.getViewIndexId() != null) {
+            posOffset++;
         }
         for (int i = posOffset; i < table.getColumns().size(); i++) {
             ColumnRef ref = new ColumnRef(tableRef,i);

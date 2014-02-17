@@ -411,7 +411,7 @@ public class MetaDataEndpointImpl extends BaseEndpointCoprocessor implements Met
         KeyValue viewTypeKv = tableKeyValues[VIEW_TYPE_INDEX];
         ViewType viewType = viewTypeKv == null ? null : ViewType.fromSerializedValue(viewTypeKv.getBuffer()[viewTypeKv.getValueOffset()]);
         KeyValue viewIndexIdKv = tableKeyValues[VIEW_INDEX_ID_INDEX];
-        Short viewIndexId = viewIndexIdKv == null ? null : (Short)PDataType.SMALLINT.getCodec().decodeShort(viewIndexIdKv.getBuffer(), viewIndexIdKv.getValueOffset(), SortOrder.getDefault());
+        Short viewIndexId = viewIndexIdKv == null ? null : (Short)MetaDataUtil.getViewIndexIdDataType().getCodec().decodeShort(viewIndexIdKv.getBuffer(), viewIndexIdKv.getValueOffset(), SortOrder.getDefault());
         
         List<PColumn> columns = Lists.newArrayListWithExpectedSize(columnCount);
         List<PTable> indexes = new ArrayList<PTable>();
@@ -441,8 +441,8 @@ public class MetaDataEndpointImpl extends BaseEndpointCoprocessor implements Met
             }
         }
         
-        return PTableImpl.makePTable(schemaName, tableName, tableType, indexState, timeStamp, tableSeqNum, pkName, saltBucketNum, columns, tableType == INDEX ? dataTableName : null, 
-                indexes, isImmutableRows, physicalTables, defaultFamilyName, viewStatement, disableWAL, multiTenant, viewType, viewIndexId);
+        return PTableImpl.makePTable(tenantId, schemaName, tableName, tableType, indexState, timeStamp, tableSeqNum, pkName, saltBucketNum, columns, 
+                tableType == INDEX ? dataTableName : null, indexes, isImmutableRows, physicalTables, defaultFamilyName, viewStatement, disableWAL, multiTenant, viewType, viewIndexId);
     }
 
     private PTable buildDeletedTable(byte[] key, ImmutableBytesPtr cacheKey, HRegion region, long clientTimeStamp) throws IOException {

@@ -184,7 +184,7 @@ public class FromCompiler {
                }
            }
            Long scn = connection.getSCN();
-           PTable theTable = new PTableImpl(table.getName().getSchemaName(), table.getName().getTableName(), scn == null ? HConstants.LATEST_TIMESTAMP : scn, families);
+           PTable theTable = new PTableImpl(connection.getTenantId(), table.getName().getSchemaName(), table.getName().getTableName(), scn == null ? HConstants.LATEST_TIMESTAMP : scn, families);
            theTable = this.addDynamicColumns(table.getDynamicColumns(), theTable);
            alias = null;
            tableRefs = ImmutableList.of(new TableRef(alias, theTable, timeStamp, !table.getDynamicColumns().isEmpty()));

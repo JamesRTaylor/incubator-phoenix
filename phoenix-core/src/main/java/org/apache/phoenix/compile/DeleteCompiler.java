@@ -68,6 +68,7 @@ import org.apache.phoenix.schema.SortOrder;
 import org.apache.phoenix.schema.TableRef;
 import org.apache.phoenix.schema.tuple.Tuple;
 import org.apache.phoenix.util.IndexUtil;
+import org.apache.phoenix.util.MetaDataUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -93,16 +94,14 @@ public class DeleteCompiler {
             PTable table = tableRef.getTable();
             List<PColumn> pkColumns = table.getPKColumns();
             boolean isMultiTenant = table.isMultiTenant() && tenantId != null;
-            boolean isMultiTenantIndex = isMultiTenant && table.getViewIndexId() != null;
-            int offset = (table.getBucketNum() == null ? 0 : 1) + (isMultiTenant ? 1 : 0) + (isMultiTenantIndex ? 1 : 0); // Take into account salting and multi-tenant
+            boolean isSharedViewIndex = table.getViewIndexId() != null;
+            int offset = (table.getBucketNum() == null ? 0 : 1);
             byte[][] values = new byte[pkColumns.size()][];
             if (isMultiTenant) {
-                if (isMultiTenant) {
-                    values[offset-2] = tenantId;
-                    values[offset-1] = PDataType.SMALLINT.toBytes(table.getViewIndexId());
-                } else {
-                    values[offset-1] = tenantId;
-                }
+                values[offset++] = tenantId;
+            }
+            if (isSharedViewIndex) {
+                values[offset++] = MetaDataUtil.getViewIndexIdDataType().toBytes(table.getViewIndexId());
             }
             ResultSet rs = new PhoenixResultSet(iterator, projector, statement);
             int rowCount = 0;
@@ -199,8 +198,8 @@ public class DeleteCompiler {
         List<AliasedNode> aliasedNodes = Lists.newArrayListWithExpectedSize(table.getPKColumns().size());
         boolean isSalted = table.getBucketNum() != null;
         boolean isMultiTenant = connection.getTenantId() != null && table.isMultiTenant();
-        boolean isMultiTenantIndex = isMultiTenant && table.getViewIndexId() != null;
-        for (int i = (isSalted ? 1 : 0) + (isMultiTenant ? 1 : 0) + (isMultiTenantIndex ? 1 : 0); i < table.getPKColumns().size(); i++) {
+        boolean isSharedViewIndex = table.getViewIndexId() != null;
+        for (int i = (isSalted ? 1 : 0) + (isMultiTenant ? 1 : 0) + (isSharedViewIndex ? 1 : 0); i < table.getPKColumns().size(); i++) {
             PColumn column = table.getPKColumns().get(i);
             aliasedNodes.add(FACTORY.aliasedNode(null, FACTORY.column(null, '"' + column.getName().getString() + '"', null)));
         }

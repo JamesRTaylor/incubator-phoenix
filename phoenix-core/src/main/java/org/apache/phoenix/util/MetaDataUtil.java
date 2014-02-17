@@ -37,7 +37,12 @@ import org.apache.phoenix.schema.SortOrder;
 
 
 public class MetaDataUtil {
-
+    public static final String VIEW_INDEX_TABLE_PREFIX = "_IDX_";
+    public static final byte[] VIEW_INDEX_TABLE_PREFIX_BYTES = Bytes.toBytes(VIEW_INDEX_TABLE_PREFIX);
+    public static final String VIEW_INDEX_SEQUENCE_PREFIX = "_SEQ_";
+    public static final byte[] VIEW_INDEX_SEQUENCE_PREFIX_BYTES = Bytes.toBytes(VIEW_INDEX_SEQUENCE_PREFIX);
+    public static final String VIEW_INDEX_ID_COLUMN_NAME = "_INDEX_ID";
+    
     public static boolean areClientAndServerCompatible(long version) {
         // A server and client with the same major and minor version number must be compatible.
         // So it's important that we roll the PHOENIX_MAJOR_VERSION or PHOENIX_MINOR_VERSION
@@ -186,7 +191,7 @@ public class MetaDataUtil {
         return kv == null ? ByteUtil.EMPTY_BYTE_ARRAY : kv.getValue();
     }
 
-    private static KeyValue getMutationKeyValue(Mutation headerRow, byte[] key) {
+    public static KeyValue getMutationKeyValue(Mutation headerRow, byte[] key) {
         List<KeyValue> kvs = headerRow.getFamilyMap().get(PhoenixDatabaseMetaData.TABLE_FAMILY_BYTES);
         if (kvs != null) {
             for (KeyValue kv : kvs) {
@@ -236,37 +241,34 @@ public class MetaDataUtil {
         return Boolean.TRUE.equals(PDataType.BOOLEAN.toObject(MetaDataUtil.getMutationKVByteValue(m, PhoenixDatabaseMetaData.MULTI_TENANT_BYTES)));
     }
     
-    public static final String MULTI_TENANT_INDEX_PREFIX = "_IDX_";
-    public static final byte[] MULTI_TENANT_INDEX_PREFIX_BYTES = Bytes.toBytes(MULTI_TENANT_INDEX_PREFIX);
-    public static final String MULTI_TENANT_SEQUENCE_PREFIX = "_SEQ_";
-    public static final byte[] MULTI_TENANT_SEQUENCE_PREFIX_BYTES = Bytes.toBytes(MULTI_TENANT_SEQUENCE_PREFIX);
+    public static boolean isSalted(Mutation m) {
+        return MetaDataUtil.getMutationKeyValue(m, PhoenixDatabaseMetaData.SALT_BUCKETS_BYTES) != null;
+    }
     
     public static byte[] getMultiTenantPhysicalIndexName(byte[] physicalTableName) {
-        return ByteUtil.concat(MULTI_TENANT_INDEX_PREFIX_BYTES, physicalTableName);
+        return ByteUtil.concat(VIEW_INDEX_TABLE_PREFIX_BYTES, physicalTableName);
     }
 
-    public static String getMultTenantSeqSchemaName(String schemaName) {
+    public static String getViewIndexSequenceSchemaName(String schemaName) {
         return schemaName;
     }
 
-    public static String getMultTenantSeqTableName(String tableName) {
-        return MULTI_TENANT_SEQUENCE_PREFIX + tableName;
+    public static String getViewIndexSequenceTableName(String tableName) {
+        return VIEW_INDEX_SEQUENCE_PREFIX + tableName;
     }
 
-    public static SequenceKey getMultTenantSeqKey(String tenantId, PName physicalName) {
+    public static SequenceKey getViewIndexSequenceKey(String tenantId, PName physicalName) {
         String fullName = physicalName.getString();
         String schemaName = SchemaUtil.getSchemaNameFromFullName(fullName);
-        String tableName = MULTI_TENANT_SEQUENCE_PREFIX + SchemaUtil.getTableNameFromFullName(fullName);
+        String tableName = VIEW_INDEX_SEQUENCE_PREFIX + SchemaUtil.getTableNameFromFullName(fullName);
         return new SequenceKey(tenantId, schemaName, tableName);
     }
 
-    public static PDataType getIndexIdDataType() {
+    public static PDataType getViewIndexIdDataType() {
         return PDataType.SMALLINT;
     }
 
-    public static final String INDEX_ID_COLUMN_NAME = "_INDEX_ID";
-
-    public static String getIndexIdColumnName() {
-        return INDEX_ID_COLUMN_NAME;
+    public static String getViewIndexIdColumnName() {
+        return VIEW_INDEX_ID_COLUMN_NAME;
     }
 }

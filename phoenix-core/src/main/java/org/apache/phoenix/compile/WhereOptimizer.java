@@ -58,6 +58,7 @@ import org.apache.phoenix.schema.SaltingUtil;
 import org.apache.phoenix.schema.SortOrder;
 import org.apache.phoenix.schema.tuple.Tuple;
 import org.apache.phoenix.util.ByteUtil;
+import org.apache.phoenix.util.MetaDataUtil;
 import org.apache.phoenix.util.SchemaUtil;
 
 import com.google.common.base.Preconditions;
@@ -157,17 +158,16 @@ public class WhereOptimizer {
         if (tenantId != null && table.isMultiTenant()) {
             KeyRange tenantIdKeyRange = KeyRange.getKeyRange(tenantId.getBytes());
             cnf.add(singletonList(tenantIdKeyRange));
-            if (iterator.hasNext()) iterator.next();
+            //if (iterator.hasNext()) iterator.next();
             pkPos++;
-            // Add unique index ID for tenant-specific index. This ensures
-            // that different indexes don't interleave.
-            if (table.getViewIndexId() != null) {
-                Short indexId = table.getViewIndexId();
-                KeyRange indexIdKeyRange = KeyRange.getKeyRange(PDataType.SMALLINT.toBytes(indexId));
-                cnf.add(singletonList(indexIdKeyRange));
-                if (iterator.hasNext()) iterator.next();
-                pkPos++;
-            }
+        }
+        // Add unique index ID for shared indexes on views. This ensures
+        // that different indexes don't interleave.
+        if (table.getViewIndexId() != null) {
+            KeyRange indexIdKeyRange = KeyRange.getKeyRange(MetaDataUtil.getViewIndexIdDataType().toBytes(table.getViewIndexId()));
+            cnf.add(singletonList(indexIdKeyRange));
+            //if (iterator.hasNext()) iterator.next();
+            pkPos++;
         }
         // Concat byte arrays of literals to form scan start key
         while (iterator.hasNext()) {
@@ -418,7 +418,7 @@ public class WhereOptimizer {
             KeySlot[] keySlot = new KeySlot[nColumns];
             KeyRange minMaxRange = KeyRange.EVERYTHING_RANGE;
             List<Expression> minMaxExtractNodes = Lists.<Expression>newArrayList();
-            int initPosition = (table.getBucketNum() ==null ? 0 : 1);
+            int initPosition = (table.getBucketNum() ==null ? 0 : 1) + (this.context.getConnection().getTenantId() != null && table.isMultiTenant() ? 1 : 0) + (table.getViewIndexId() == null ? 0 : 1);
             for (KeySlots childSlot : childSlots) {
                 if (childSlot == DEGENERATE_KEY_PARTS) {
                     return DEGENERATE_KEY_PARTS;
@@ -477,7 +477,7 @@ public class WhereOptimizer {
             if (orExpression.getChildren().size() != childSlots.size()) {
                 return null;
             }
-            int initialPos = (table.getBucketNum() == null ? 0 : 1);
+            int initialPos = (table.getBucketNum() ==null ? 0 : 1) + (this.context.getConnection().getTenantId() != null && table.isMultiTenant() ? 1 : 0) + (table.getViewIndexId() == null ? 0 : 1);
             KeySlot theSlot = null;
             List<Expression> slotExtractNodes = Lists.<Expression>newArrayList();
             int thePosition = -1;

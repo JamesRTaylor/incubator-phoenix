@@ -316,8 +316,8 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
         if (pkPosition >= 0) {
             boolean isSalted = table.getBucketNum() != null;
             boolean isMultiTenant = context.getConnection().getTenantId() != null && table.isMultiTenant();
-            boolean isTenantSpecificIndex = isMultiTenant && table.getViewIndexId() != null;
-            int minPosition = (isSalted ? 1 : 0) + (isMultiTenant ? 1 : 0) + (isTenantSpecificIndex ? 1 : 0);
+            boolean isSharedViewIndex = table.getViewIndexId() != null;
+            int minPosition = (isSalted ? 1 : 0) + (isMultiTenant ? 1 : 0) + (isSharedViewIndex ? 1 : 0);
             if (pkPosition < minPosition) {
                 throw new ColumnNotFoundException(table.getSchemaName().getString(), table.getTableName().getString(), null, ref.getColumn().getName().getString());
             }

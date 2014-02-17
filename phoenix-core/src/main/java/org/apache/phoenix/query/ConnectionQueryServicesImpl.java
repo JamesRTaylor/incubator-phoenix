@@ -791,7 +791,7 @@ public class ConnectionQueryServicesImpl extends DelegateQueryServices implement
     public MetaDataMutationResult createTable(final List<Mutation> tableMetaData, byte[] physicalTableName, PTableType tableType,
             Map<String,Object> tableProps, final List<Pair<byte[],Map<String,Object>>> families, byte[][] splits) throws SQLException {
         byte[][] rowKeyMetadata = new byte[3][];
-        Mutation m = tableMetaData.get(0);
+        Mutation m = MetaDataUtil.getPutOnlyTableHeaderRow(tableMetaData);
         byte[] key = m.getRow();
         SchemaUtil.getVarChars(key, rowKeyMetadata);
         byte[] tenantIdBytes = rowKeyMetadata[PhoenixDatabaseMetaData.TENANT_ID_INDEX];
@@ -814,7 +814,8 @@ public class ConnectionQueryServicesImpl extends DelegateQueryServices implement
                 int indexMaxFileSizePerc = config.getInt(QueryServices.INDEX_MAX_FILESIZE_PERC_ATTRIB, QueryServicesOptions.DEFAULT_INDEX_MAX_FILESIZE_PERC);
                 long indexMaxFileSize = maxFileSize * indexMaxFileSizePerc / 100;
                 tableProps.put(HTableDescriptor.MAX_FILESIZE, indexMaxFileSize);
-                ensureTableCreated(physicalIndexName, tableType, tableProps, families, splits);
+                // Only use splits if table is salted, otherwise it may not be applicable
+                ensureTableCreated(physicalIndexName, tableType, tableProps, families, MetaDataUtil.isSalted(m) ? splits : null);
             }
         }
         
