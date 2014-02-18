@@ -115,6 +115,7 @@ public class PTableImpl implements PTable {
     }
 
     public PTableImpl(PName tenantId, String schemaName, String tableName, long timestamp, List<PColumnFamily> families) { // For base table of mapped VIEW
+        this.tenantId = tenantId;
         this.name = PNameFactory.newName(SchemaUtil.getTableName(schemaName, tableName));
         this.schemaName = PNameFactory.newName(schemaName);
         this.tableName = PNameFactory.newName(tableName);
@@ -131,6 +132,7 @@ public class PTableImpl implements PTable {
             familyByString.put(family.getName().getString(), family);
         }
         this.families = families;
+        this.physicalNames = Collections.emptyList();;
     }
 
     public PTableImpl(long timeStamp) { // For delete marker
@@ -151,6 +153,7 @@ public class PTableImpl implements PTable {
         this.familyByString = Collections.emptyMap();
         this.rowKeySchema = RowKeySchema.EMPTY_SCHEMA;
         this.indexes = Collections.emptyList();
+        this.physicalNames = Collections.emptyList();;
     }
 
     // When cloning table, ignore the salt column as it will be added back in the constructor

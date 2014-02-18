@@ -327,7 +327,7 @@ public class WhereOptimizer {
                 return null;
             }
             
-            int positionOffset = table.getBucketNum() == null ? 0 : 1;
+            int positionOffset = (table.getBucketNum() ==null ? 0 : 1) + (this.context.getConnection().getTenantId() != null && table.isMultiTenant() ? 1 : 0) + (table.getViewIndexId() == null ? 0 : 1);
             int position = 0;
             for (KeySlots slots : childSlots) {
                 KeySlot keySlot = slots.iterator().next();

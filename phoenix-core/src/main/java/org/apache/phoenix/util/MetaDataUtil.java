@@ -19,14 +19,17 @@ package org.apache.phoenix.util;
 
 import static org.apache.phoenix.util.SchemaUtil.getVarChars;
 
+import java.sql.SQLException;
 import java.util.Collection;
 import java.util.List;
 
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.phoenix.coprocessor.MetaDataProtocol;
+import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.jdbc.PhoenixDatabaseMetaData;
 import org.apache.phoenix.query.QueryConstants;
 import org.apache.phoenix.schema.PDataType;
@@ -34,6 +37,7 @@ import org.apache.phoenix.schema.PName;
 import org.apache.phoenix.schema.PTableType;
 import org.apache.phoenix.schema.SequenceKey;
 import org.apache.phoenix.schema.SortOrder;
+import org.apache.phoenix.schema.TableNotFoundException;
 
 
 public class MetaDataUtil {
@@ -245,23 +249,26 @@ public class MetaDataUtil {
         return MetaDataUtil.getMutationKeyValue(m, PhoenixDatabaseMetaData.SALT_BUCKETS_BYTES) != null;
     }
     
-    public static byte[] getMultiTenantPhysicalIndexName(byte[] physicalTableName) {
+    public static byte[] getViewIndexPhysicalName(byte[] physicalTableName) {
         return ByteUtil.concat(VIEW_INDEX_TABLE_PREFIX_BYTES, physicalTableName);
     }
 
-    public static String getViewIndexSequenceSchemaName(String schemaName) {
+    public static String getViewIndexTableName(String tableName) {
+        return VIEW_INDEX_TABLE_PREFIX + tableName;
+    }
+
+    public static String getViewIndexSchemaName(String schemaName) {
         return schemaName;
     }
 
-    public static String getViewIndexSequenceTableName(String tableName) {
-        return VIEW_INDEX_SEQUENCE_PREFIX + tableName;
-    }
-
     public static SequenceKey getViewIndexSequenceKey(String tenantId, PName physicalName) {
-        String fullName = physicalName.getString();
-        String schemaName = SchemaUtil.getSchemaNameFromFullName(fullName);
-        String tableName = VIEW_INDEX_SEQUENCE_PREFIX + SchemaUtil.getTableNameFromFullName(fullName);
-        return new SequenceKey(tenantId, schemaName, tableName);
+        // Create global sequence of the form: <prefixed base table name><tenant id>
+        // rather than tenant-specific sequence, as it makes it much easier
+        // to cleanup when the physical table is dropped, as we can delete
+        // all global sequences leading with <prefix> + physical name.
+        String schemaName = VIEW_INDEX_SEQUENCE_PREFIX + physicalName.getString();
+        String tableName = tenantId == null ? "" : tenantId;
+        return new SequenceKey(null, schemaName, tableName);
     }
 
     public static PDataType getViewIndexIdDataType() {
@@ -271,4 +278,25 @@ public class MetaDataUtil {
     public static String getViewIndexIdColumnName() {
         return VIEW_INDEX_ID_COLUMN_NAME;
     }
+
+    public static boolean hasViewIndexTable(PhoenixConnection connection, PName name) throws SQLException {
+        byte[] physicalIndexName = MetaDataUtil.getViewIndexPhysicalName(name.getBytes());
+        try {
+            HTableDescriptor desc = connection.getQueryServices().getTableDescriptor(physicalIndexName);
+            return desc != null && Boolean.TRUE.equals(PDataType.BOOLEAN.toObject(desc.getValue(IS_VIEW_INDEX_TABLE_PROP_BYTES)));
+        } catch (TableNotFoundException e) {
+            return false;
+        }
+    }
+    
+    public static void deleteViewIndexSequences(PhoenixConnection connection, PName name) throws SQLException {
+        SequenceKey key = getViewIndexSequenceKey(null, name);
+        connection.createStatement().executeUpdate("DELETE FROM " + PhoenixDatabaseMetaData.SEQUENCE_TABLE_NAME + 
+                " WHERE " + PhoenixDatabaseMetaData.TENANT_ID + " IS NULL AND " + 
+                PhoenixDatabaseMetaData.SEQUENCE_SCHEMA + " = '" + key.getSchemaName() + "'");
+        
+    }
+
+    public static final String IS_VIEW_INDEX_TABLE_PROP_NAME = "IS_VIEW_INDEX_TABLE";
+    public static final byte[] IS_VIEW_INDEX_TABLE_PROP_BYTES = Bytes.toBytes(IS_VIEW_INDEX_TABLE_PROP_NAME);
 }

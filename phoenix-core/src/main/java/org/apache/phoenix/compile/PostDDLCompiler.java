@@ -43,6 +43,7 @@ import org.apache.phoenix.schema.ColumnRef;
 import org.apache.phoenix.schema.PColumn;
 import org.apache.phoenix.schema.PColumnFamily;
 import org.apache.phoenix.schema.PDataType;
+import org.apache.phoenix.schema.TableNotFoundException;
 import org.apache.phoenix.schema.TableRef;
 import org.apache.phoenix.schema.tuple.Tuple;
 import org.apache.phoenix.util.ScanUtil;
@@ -197,27 +198,32 @@ public class PostDDLCompiler {
                                 continue;
                             }
                             QueryPlan plan = new AggregatePlan(context, select, tableRef, projector, null, OrderBy.EMPTY_ORDER_BY, null, GroupBy.EMPTY_GROUP_BY, null);
-                            ResultIterator iterator = plan.iterator();
                             try {
-                                Tuple row = iterator.next();
-                                ImmutableBytesWritable ptr = context.getTempPtr();
-                                totalMutationCount += (Long)projector.getColumnProjector(0).getValue(row, PDataType.LONG, ptr);
-                            } catch (SQLException e) {
-                                sqlE = e;
-                            } finally {
+                                ResultIterator iterator = plan.iterator();
                                 try {
-                                    iterator.close();
+                                    Tuple row = iterator.next();
+                                    ImmutableBytesWritable ptr = context.getTempPtr();
+                                    totalMutationCount += (Long)projector.getColumnProjector(0).getValue(row, PDataType.LONG, ptr);
                                 } catch (SQLException e) {
-                                    if (sqlE == null) {
-                                        sqlE = e;
-                                    } else {
-                                        sqlE.setNextException(e);
-                                    }
+                                    sqlE = e;
                                 } finally {
-                                    if (sqlE != null) {
-                                        throw sqlE;
+                                    try {
+                                        iterator.close();
+                                    } catch (SQLException e) {
+                                        if (sqlE == null) {
+                                            sqlE = e;
+                                        } else {
+                                            sqlE.setNextException(e);
+                                        }
+                                    } finally {
+                                        if (sqlE != null) {
+                                            throw sqlE;
+                                        }
                                     }
                                 }
+                            } catch (TableNotFoundException e) {
+                                // Ignore and continue, as HBase throws when table hasn't been written to
+                                // FIXME: Remove if this is fixed in 0.96
                             }
                         } finally {
                             if (cache != null) { // Remove server cache if there is one

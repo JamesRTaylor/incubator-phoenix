@@ -736,10 +736,6 @@ public class MetaDataEndpointImpl extends BaseEndpointCoprocessor implements Met
         if (table.getType() != PTableType.VIEW) { // Add to list of HTables to delete, unless it's a view
             byte[] fullName = table.getName().getBytes();
             tableNamesToDelete.add(fullName);
-            // Add index table too here
-            if (table.isMultiTenant()) {
-                tableNamesToDelete.add(MetaDataUtil.getMultiTenantPhysicalIndexName(fullName));
-            }
         }
         List<byte[]> indexNames = Lists.newArrayList();
         invalidateList.add(cacheKey);
