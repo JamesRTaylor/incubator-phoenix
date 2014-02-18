@@ -1242,28 +1242,34 @@ public class MetaDataClient {
                     
                     // TODO: we need to drop the index data when a view is dropped
                     boolean dropMetaData = connection.getQueryServices().getProps().getBoolean(DROP_METADATA_ATTRIB, DEFAULT_DROP_METADATA);
-                    if (result.getTable() != null && tableType != PTableType.VIEW && !dropMetaData) {
+                    if (result.getTable() != null && tableType != PTableType.VIEW) {
                         connection.setAutoCommit(true);
-                        // Delete everything in the column. You'll still be able to do queries at earlier timestamps
+                        PTable table = result.getTable();
                         long ts = (scn == null ? result.getMutationTime() : scn);
                         // Create empty table and schema - they're only used to get the name from
                         // PName name, PTableType type, long timeStamp, long sequenceNumber, List<PColumn> columns
-                        PTable table = result.getTable();
                         List<TableRef> tableRefs = Lists.newArrayListWithExpectedSize(2 + table.getIndexes().size());
-                        tableRefs.add(new TableRef(null, table, ts, false));
                         if (tableType == PTableType.TABLE && MetaDataUtil.hasViewIndexTable(connection, table.getPhysicalName())) {
                             MetaDataUtil.deleteViewIndexSequences(connection, table.getPhysicalName());
-                            String viewIndexSchemaName = MetaDataUtil.getViewIndexSchemaName(schemaName);
-                            String viewIndexTableName = MetaDataUtil.getViewIndexTableName(tableName);
-                            PTable viewIndexTable = new PTableImpl(null, viewIndexSchemaName, viewIndexTableName, ts, table.getColumnFamilies());
-                            tableRefs.add(new TableRef(null, viewIndexTable, ts, false));
+                            // TODO: consider removing this, as the DROP INDEX done for each DROP VIEW command
+                            // would have deleted all the rows already
+                            if (!dropMetaData) {
+                                String viewIndexSchemaName = MetaDataUtil.getViewIndexSchemaName(schemaName);
+                                String viewIndexTableName = MetaDataUtil.getViewIndexTableName(tableName);
+                                PTable viewIndexTable = new PTableImpl(null, viewIndexSchemaName, viewIndexTableName, ts, table.getColumnFamilies());
+                                tableRefs.add(new TableRef(null, viewIndexTable, ts, false));
+                            }
                         }
-                        // TODO: Let the standard mutable secondary index maintenance handle this?
-                        for (PTable index: table.getIndexes()) {
-                            tableRefs.add(new TableRef(null, index, ts, false));
+                        if (!dropMetaData) {
+                            // Delete everything in the column. You'll still be able to do queries at earlier timestamps
+                            tableRefs.add(new TableRef(null, table, ts, false));
+                            // TODO: Let the standard mutable secondary index maintenance handle this?
+                            for (PTable index: table.getIndexes()) {
+                                tableRefs.add(new TableRef(null, index, ts, false));
+                            }
+                            MutationPlan plan = new PostDDLCompiler(connection).compile(tableRefs, null, null, Collections.<PColumn>emptyList(), ts);
+                            return connection.getQueryServices().updateData(plan);
                         }
-                        MutationPlan plan = new PostDDLCompiler(connection).compile(tableRefs, null, null, Collections.<PColumn>emptyList(), ts);
-                        return connection.getQueryServices().updateData(plan);
                     }
                     break;
                 }
@@ -1559,20 +1565,25 @@ public class MetaDataClient {
                     // We only need to do this if the multiTenant transitioned to false
                     if (table.getType() == PTableType.TABLE
                             && Boolean.FALSE.equals(multiTenant)
-                            && !connection.getQueryServices().getProps().getBoolean(DROP_METADATA_ATTRIB, DEFAULT_DROP_METADATA)
                             && MetaDataUtil.hasViewIndexTable(connection, table.getPhysicalName())) {
                         connection.setAutoCommit(true);
-                        Long scn = connection.getSCN();
-                        long ts = (scn == null ? result.getMutationTime() : scn);
                         MetaDataUtil.deleteViewIndexSequences(connection, table.getPhysicalName());
-                        String viewIndexSchemaName = MetaDataUtil.getViewIndexSchemaName(schemaName);
-                        String viewIndexTableName = MetaDataUtil.getViewIndexTableName(tableName);
-                        PTable viewIndexTable = new PTableImpl(null, viewIndexSchemaName, viewIndexTableName, ts,
-                                table.getColumnFamilies());
-                        List<TableRef> tableRefs = Collections.singletonList(new TableRef(null, viewIndexTable, ts, false));
-                        MutationPlan plan = new PostDDLCompiler(connection).compile(tableRefs, null, null,
-                                Collections.<PColumn> emptyList(), ts);
-                        connection.getQueryServices().updateData(plan);
+                        // If we're not dropping metadata, then make sure no rows are left in
+                        // our view index physical table.
+                        // TODO: remove this, as the DROP INDEX commands run when the DROP VIEW
+                        // commands are run would remove all rows already.
+                        if (!connection.getQueryServices().getProps().getBoolean(DROP_METADATA_ATTRIB, DEFAULT_DROP_METADATA)) {
+                            Long scn = connection.getSCN();
+                            long ts = (scn == null ? result.getMutationTime() : scn);
+                            String viewIndexSchemaName = MetaDataUtil.getViewIndexSchemaName(schemaName);
+                            String viewIndexTableName = MetaDataUtil.getViewIndexTableName(tableName);
+                            PTable viewIndexTable = new PTableImpl(null, viewIndexSchemaName, viewIndexTableName, ts,
+                                    table.getColumnFamilies());
+                            List<TableRef> tableRefs = Collections.singletonList(new TableRef(null, viewIndexTable, ts, false));
+                            MutationPlan plan = new PostDDLCompiler(connection).compile(tableRefs, null, null,
+                                    Collections.<PColumn> emptyList(), ts);
+                            connection.getQueryServices().updateData(plan);
+                        }
                     }
                     if (emptyCF != null) {
                         Long scn = connection.getSCN();
