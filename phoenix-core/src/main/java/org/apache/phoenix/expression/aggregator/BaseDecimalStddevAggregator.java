@@ -17,7 +17,9 @@
  */
 package org.apache.phoenix.expression.aggregator;
 
-import java.math.*;
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map.Entry;
 
@@ -26,8 +28,8 @@ import org.apache.hadoop.hbase.util.Pair;
 import org.apache.phoenix.expression.ColumnExpression;
 import org.apache.phoenix.expression.Expression;
 import org.apache.phoenix.hbase.index.util.ImmutableBytesPtr;
-import org.apache.phoenix.schema.SortOrder;
 import org.apache.phoenix.schema.PDataType;
+import org.apache.phoenix.schema.SortOrder;
 import org.apache.phoenix.schema.tuple.Tuple;
 import org.apache.phoenix.util.BigDecimalUtil;
 import org.apache.phoenix.util.BigDecimalUtil.Operation;
@@ -45,7 +47,7 @@ public abstract class BaseDecimalStddevAggregator extends DistinctValueWithCount
     public BaseDecimalStddevAggregator(List<Expression> exps, SortOrder sortOrder) {
         super(sortOrder);
         ColumnExpression stdDevColExp = (ColumnExpression)exps.get(0);
-        this.colPrecision = stdDevColExp.getMaxLength();
+        this.colPrecision = stdDevColExp.getMaxLength(); // TODO: maxLength of this expression should be colPrecision
         this.colScale = stdDevColExp.getScale();
     }
 

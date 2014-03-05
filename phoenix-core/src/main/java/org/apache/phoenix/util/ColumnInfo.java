@@ -40,7 +40,8 @@ public class ColumnInfo {
 		return sqlType;
 	}
 	
-	public String toString() {
+	@Override
+    public String toString() {
 		return columnName+" "+PDataType.fromTypeId(sqlType).getSqlTypeName();
 	}
 }	

@@ -143,11 +143,11 @@ public class IndexUtil {
     }
 
     public static List<Mutation> generateIndexData(final PTable table, PTable index,
-            List<Mutation> dataMutations, ImmutableBytesWritable ptr, KeyValueBuilder builder)
+            List<Mutation> dataMutations, ImmutableBytesWritable ptr, final KeyValueBuilder kvBuilder)
             throws SQLException {
         try {
             IndexMaintainer maintainer = index.getIndexMaintainer(table);
-            maintainer.setKvBuilder(builder);
+            maintainer.setKvBuilder(kvBuilder);
             List<Mutation> indexMutations = Lists.newArrayListWithExpectedSize(dataMutations.size());
            for (final Mutation dataMutation : dataMutations) {
                 long ts = MetaDataUtil.getClientTimeStamp(dataMutation);
@@ -172,9 +172,11 @@ public class IndexUtil {
                             }
                             byte[] qualifier = ref.getQualifier();
                             for (KeyValue kv : kvs) {
-                                if (Bytes.compareTo(kv.getBuffer(), kv.getFamilyOffset(), kv.getFamilyLength(), family, 0, family.length) == 0 &&
-                                    Bytes.compareTo(kv.getBuffer(), kv.getQualifierOffset(), kv.getQualifierLength(), qualifier, 0, qualifier.length) == 0) {
-                                    return new ImmutableBytesPtr(kv.getBuffer(), kv.getValueOffset(), kv.getValueLength());
+                                if (  kvBuilder.compareFamily(kv, family, 0, family.length) == 0
+                                   && kvBuilder.compareQualifier(kv, qualifier, 0, qualifier.length) == 0) {
+                                    ImmutableBytesPtr ptr = new ImmutableBytesPtr();
+                                    kvBuilder.getValueAsPtr(kv, ptr);
+                                    return ptr;
                                 }
                             }
                             return null;
