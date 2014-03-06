@@ -340,14 +340,14 @@ public class ProjectionCompiler {
             PColumnFamily family = table.getColumnFamily(entry.getKey());
             if (entry.getValue() == null) {
                 for (PColumn column : family.getColumns()) {
-                    Integer byteSize = column.getByteSize();
-                    estimatedByteSize += SizedUtil.KEY_VALUE_SIZE + estimatedKeySize + (byteSize == null ? RowKeySchema.ESTIMATED_VARIABLE_LENGTH_SIZE : byteSize);
+                    Integer maxLength = column.getMaxLength();
+                    estimatedByteSize += SizedUtil.KEY_VALUE_SIZE + estimatedKeySize + (maxLength == null ? RowKeySchema.ESTIMATED_VARIABLE_LENGTH_SIZE : maxLength);
                 }
             } else {
                 for (byte[] cq : entry.getValue()) {
                     PColumn column = family.getColumn(cq);
-                    Integer byteSize = column.getByteSize();
-                    estimatedByteSize += SizedUtil.KEY_VALUE_SIZE + estimatedKeySize + (byteSize == null ? RowKeySchema.ESTIMATED_VARIABLE_LENGTH_SIZE : byteSize);
+                    Integer maxLength = column.getMaxLength();
+                    estimatedByteSize += SizedUtil.KEY_VALUE_SIZE + estimatedKeySize + (maxLength == null ? RowKeySchema.ESTIMATED_VARIABLE_LENGTH_SIZE : maxLength);
                 }
             }
         }

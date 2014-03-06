@@ -78,11 +78,6 @@ public class SchemaUtil {
         }
     
         @Override
-        public Integer getByteSize() {
-            return null;
-        }
-    
-        @Override
         public Integer getMaxLength() {
             return null;
         }
@@ -122,8 +117,8 @@ public class SchemaUtil {
         List<PColumn> columns = table.getPKColumns();
         while (i < columns.size()) {
             PColumn keyColumn = columns.get(i++);
-            Integer byteSize = keyColumn.getByteSize();
-            maxKeyLength += (byteSize == null) ? VAR_LENGTH_ESTIMATE : byteSize;
+            Integer maxLength = keyColumn.getMaxLength();
+            maxKeyLength += (maxLength == null) ? VAR_LENGTH_ESTIMATE : maxLength;
         }
         return maxKeyLength;
     }
@@ -392,7 +387,8 @@ public class SchemaUtil {
         while (pos < pkColumns.size()) {
             PColumn column = iterator.next();
             if (column.getDataType().isFixedWidth()) { // Fixed width
-                int length = column.getByteSize();
+                Integer maxLength = column.getMaxLength();
+                int length = maxLength == null ? column.getDataType().getByteSize() : maxLength;
                 if (maxOffset - offset < length) {
                     // The split truncates the field. Fill in the rest of the part and any fields that
                     // are missing after this field.
@@ -431,7 +427,8 @@ public class SchemaUtil {
         while (iterator.hasNext()) {
             PColumn column = iterator.next();
             if (column.getDataType().isFixedWidth()) {
-                length += column.getByteSize();
+                Integer maxLength = column.getMaxLength();
+                length += maxLength == null ? column.getDataType().getByteSize() : maxLength;
             } else {
                 length += 1; // SEPARATOR byte.
             }

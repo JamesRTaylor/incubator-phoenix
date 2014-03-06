@@ -113,8 +113,8 @@ public class RowValueConstructorExpression extends BaseCompoundExpression {
             return 1;
         } else {
             // Write at least one null byte in the case of the child being null with a childType of null
-            Integer byteSize = e.getByteSize();
-            int bytesToWrite = byteSize == null ? 1 : Math.max(1, byteSize);
+            Integer maxLength = e.getMaxLength();
+            int bytesToWrite = maxLength == null ? 1 : Math.max(1, maxLength);
             return bytesToWrite;
         }
     }

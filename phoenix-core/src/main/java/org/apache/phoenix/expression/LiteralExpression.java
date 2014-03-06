@@ -67,7 +67,6 @@ public class LiteralExpression extends BaseTerminalExpression {
     private PDataType type;
     private boolean isDeterministic;
     private byte[] byteValue;
-    private Integer byteSize;
     private Integer maxLength;
     private Integer scale;
     private SortOrder sortOrder;
@@ -191,7 +190,6 @@ public class LiteralExpression extends BaseTerminalExpression {
         this.value = value;
         this.type = type;
         this.byteValue = byteValue;
-        this.byteSize = byteValue.length;
         this.maxLength = maxLength;
         this.scale = scale;
         this.sortOrder = sortOrder;
@@ -247,8 +245,6 @@ public class LiteralExpression extends BaseTerminalExpression {
         } else {
             this.value = this.type.toObject(byteValue, 0, byteValue.length, this.type, sortOrder);
         }
-        // Only to prevent continual reallocations of Integer
-        this.byteSize = this.byteValue.length;
     }
 
     @Override
@@ -269,11 +265,6 @@ public class LiteralExpression extends BaseTerminalExpression {
     @Override
     public PDataType getDataType() {
         return type;
-    }
-
-    @Override
-    public Integer getByteSize() {
-        return byteSize;
     }
 
     @Override

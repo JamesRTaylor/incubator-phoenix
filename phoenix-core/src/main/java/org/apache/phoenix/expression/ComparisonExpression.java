@@ -162,7 +162,7 @@ public class ComparisonExpression extends BaseCompoundExpression {
             // into account the comparison operator.
             if (rhsExprDataType != lhsExprDataType 
                     || rhsExpr.getSortOrder() != lhsExpr.getSortOrder()
-                    || (rhsExpr.getMaxLength() != null && lhsExpr.getMaxLength() != null && rhsExpr.getMaxLength() < lhsExpr.getMaxLength())) {
+                    || (rhsExprDataType.isFixedWidth() && rhsExpr.getMaxLength() != null && lhsExprDataType.isFixedWidth() && lhsExpr.getMaxLength() != null && rhsExpr.getMaxLength() < lhsExpr.getMaxLength())) {
                 // TODO: if lengths are unequal and fixed width?
                 if (rhsExprDataType.isCoercibleTo(lhsExprDataType, rhsValue)) { // will convert 2.0 -> 2
                     children = Arrays.asList(children.get(0), LiteralExpression.newConstant(rhsValue, lhsExprDataType, 
@@ -244,7 +244,7 @@ public class ComparisonExpression extends BaseCompoundExpression {
 
             // Determine if we know the expression must be TRUE or FALSE based on the max size of
             // a fixed length expression.
-            if (children.get(1).getMaxLength() != null && lhsExpr.getMaxLength() != null && lhsExpr.getMaxLength() < children.get(1).getMaxLength()) {
+            if (children.get(1).getDataType().isFixedWidth() && children.get(1).getMaxLength() != null && lhsExprDataType.isFixedWidth() && lhsExpr.getMaxLength() != null && lhsExpr.getMaxLength() < children.get(1).getMaxLength()) {
                 switch (op) {
                 case EQUAL:
                     return LiteralExpression.newConstant(false, PDataType.BOOLEAN, isDeterministic);

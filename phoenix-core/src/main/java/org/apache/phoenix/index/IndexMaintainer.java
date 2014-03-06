@@ -101,7 +101,7 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
                 rowKeyMetaData.setIndexPkPosition(dataPkPos, indexPos);
             } else {
                 maintainer.getIndexedColumnTypes().add(column.getDataType());
-                maintainer.getIndexedColumnSizes().add(column.getByteSize());
+                maintainer.getIndexedColumnSizes().add(column.getMaxLength());
                 maintainer.getIndexedColumns().add(new ColumnReference(column.getFamilyName().getBytes(), column.getName().getBytes()));
             }
             if (indexColumn.getSortOrder() == SortOrder.DESC) {
@@ -200,7 +200,7 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
     private Set<ColumnReference> coveredColumns;
     private Set<ColumnReference> allColumns;
     private List<PDataType> indexedColumnTypes;
-    private List<Integer> indexedColumnByteSizes;
+    private List<Integer> indexedColumnMaxLengths;
     private RowKeyMetaData rowKeyMetaData;
     private byte[] indexTableName;
     private int nIndexSaltBuckets;
@@ -258,7 +258,7 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
         this.indexTableName = indexTableName;
         this.indexedColumns = Sets.newLinkedHashSetWithExpectedSize(nIndexPKColumns-nDataPKColumns);
         this.indexedColumnTypes = Lists.<PDataType>newArrayListWithExpectedSize(nIndexPKColumns-nDataPKColumns);
-        this.indexedColumnByteSizes = Lists.<Integer>newArrayListWithExpectedSize(nIndexPKColumns-nDataPKColumns);
+        this.indexedColumnMaxLengths = Lists.<Integer>newArrayListWithExpectedSize(nIndexPKColumns-nDataPKColumns);
         this.coveredColumns = Sets.newLinkedHashSetWithExpectedSize(nIndexColumns-nIndexPKColumns);
         this.allColumns = Sets.newLinkedHashSetWithExpectedSize(nDataPKColumns + nIndexColumns);
         this.allColumns.addAll(indexedColumns);
@@ -524,7 +524,7 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
     }
     
     private List<Integer> getIndexedColumnSizes() {
-        return indexedColumnByteSizes;
+        return indexedColumnMaxLengths;
     }
 
     private List<PDataType> getIndexedColumnTypes() {
@@ -555,10 +555,10 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
             PDataType type = PDataType.values()[WritableUtils.readVInt(input)];
             indexedColumnTypes.add(type);
         }
-        indexedColumnByteSizes = Lists.newArrayListWithExpectedSize(nIndexedColumns);
+        indexedColumnMaxLengths = Lists.newArrayListWithExpectedSize(nIndexedColumns);
         for (int i = 0; i < nIndexedColumns; i++) {
-            int byteSize = WritableUtils.readVInt(input);
-            indexedColumnByteSizes.add(byteSize == 0 ? null : Integer.valueOf(byteSize));
+            int maxLength = WritableUtils.readVInt(input);
+            indexedColumnMaxLengths.add(maxLength == 0 ? null : Integer.valueOf(maxLength));
         }
         int nCoveredColumns = WritableUtils.readVInt(input);
         coveredColumns = Sets.newLinkedHashSetWithExpectedSize(nCoveredColumns);
@@ -598,8 +598,8 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
             PDataType type = indexedColumnTypes.get(i);
             WritableUtils.writeVInt(output, type.ordinal());
         }
-        for (int i = 0; i < indexedColumnByteSizes.size(); i++) {
-            Integer byteSize = indexedColumnByteSizes.get(i);
+        for (int i = 0; i < indexedColumnMaxLengths.size(); i++) {
+            Integer byteSize = indexedColumnMaxLengths.get(i);
             WritableUtils.writeVInt(output, byteSize == null ? 0 : byteSize);
         }
         WritableUtils.writeVInt(output, coveredColumns.size());
@@ -628,7 +628,7 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
             size += ref.getQualifier().length;
         }
         size += indexedColumnTypes.size();
-        size += indexedColumnByteSizes.size();
+        size += indexedColumnMaxLengths.size();
         size += WritableUtils.getVIntSize(coveredColumns.size());
         for (ColumnReference ref : coveredColumns) {
             size += WritableUtils.getVIntSize(ref.getFamily().length);
@@ -646,7 +646,7 @@ public class IndexMaintainer implements Writable, Iterable<ColumnReference> {
     
     private int estimateIndexRowKeyByteSize() {
         int estimatedIndexRowKeyBytes = dataRowKeySchema.getEstimatedValueLength() + (nIndexSaltBuckets == 0 ?  0 : SaltingUtil.NUM_SALTING_BYTES);
-        for (Integer byteSize : indexedColumnByteSizes) {
+        for (Integer byteSize : indexedColumnMaxLengths) {
             estimatedIndexRowKeyBytes += (byteSize == null ? ValueSchema.ESTIMATED_VARIABLE_LENGTH_SIZE : byteSize);
         }
         return estimatedIndexRowKeyBytes;

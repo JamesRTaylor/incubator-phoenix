@@ -59,11 +59,6 @@ public class CreateSequenceCompiler {
         }
 
         @Override
-        public Integer getByteSize() {
-            return PDataType.LONG.getByteSize();
-        }
-
-        @Override
         public Integer getMaxLength() {
             return null;
         }
@@ -89,11 +84,6 @@ public class CreateSequenceCompiler {
         @Override
         public PDataType getDataType() {
             return PDataType.INTEGER;
-        }
-
-        @Override
-        public Integer getByteSize() {
-            return PDataType.INTEGER.getByteSize();
         }
 
         @Override
